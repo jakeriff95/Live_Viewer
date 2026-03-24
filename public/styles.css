@@ -1,0 +1,367 @@
+:root {
+  color-scheme: dark;
+  --bg: #07111f;
+  --panel: rgba(10, 19, 34, 0.96);
+  --panel-soft: rgba(15, 28, 48, 0.84);
+  --text: #e5edf7;
+  --muted: #93a4bb;
+  --border: rgba(148, 163, 184, 0.2);
+  --accent: #38bdf8;
+  --accent-2: #fb7185;
+  --aircraft: #7dd3fc;
+  --vessel: #fda4af;
+  --success: #34d399;
+  --warning: #fbbf24;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  overflow: hidden;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+input[type="search"],
+input[type="number"] {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(2, 8, 23, 0.72);
+  color: var(--text);
+  padding: 10px 12px;
+}
+
+label {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 380px 1fr;
+  height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-right: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(3, 10, 19, 0.98), rgba(7, 17, 31, 0.98));
+  padding: 16px;
+  overflow: hidden;
+}
+
+.sidebar-header,
+.section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar-header h1,
+.section-header-row h2 {
+  margin: 0;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.7rem;
+}
+
+.section {
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+}
+
+.section-tight {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.search-row,
+.filters-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.toggles-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  margin-top: 12px;
+}
+
+.toggles-grid label,
+.filters-grid label {
+  display: grid;
+  gap: 6px;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(2, 8, 23, 0.42);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.metric-label {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.metric-card strong {
+  font-size: 1.05rem;
+}
+
+.details-section,
+.status-section,
+.entities-section {
+  min-height: 0;
+}
+
+.selected-empty {
+  color: var(--muted);
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.detail-row {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(2, 8, 23, 0.4);
+}
+
+.detail-row span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-bottom: 4px;
+}
+
+.status-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.status-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(2, 8, 23, 0.4);
+}
+
+.status-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--warning);
+  box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.12);
+}
+
+.status-dot.ok {
+  background: var(--success);
+  box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.12);
+}
+
+.entity-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  max-height: 100%;
+  padding-right: 4px;
+}
+
+.entity-card {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(2, 8, 23, 0.42);
+  color: var(--text);
+  text-align: left;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.entity-card.active {
+  border-color: rgba(56, 189, 248, 0.7);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.7);
+}
+
+.entity-topline,
+.entity-subline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.entity-topline strong {
+  font-size: 0.95rem;
+}
+
+.entity-subline {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin-top: 6px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(125, 211, 252, 0.14);
+  color: var(--aircraft);
+}
+
+.badge.vessel {
+  background: rgba(253, 164, 175, 0.14);
+  color: var(--vessel);
+}
+
+.map-shell {
+  position: relative;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+.hud {
+  position: absolute;
+  z-index: 20;
+  top: 14px;
+  left: 14px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hud-pill,
+.pill {
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(10, 19, 34, 0.88);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.ghost-button,
+.text-button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(2, 8, 23, 0.62);
+  color: var(--text);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.text-button {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  padding: 0;
+}
+
+.maplibregl-popup-content {
+  background: rgba(10, 19, 34, 0.96);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
+}
+
+.maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup-anchor-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-right .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip {
+  border-top-color: rgba(10, 19, 34, 0.96);
+  border-bottom-color: rgba(10, 19, 34, 0.96);
+}
+
+.popup-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.popup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+@media (max-width: 1080px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: absolute;
+    z-index: 30;
+    left: 12px;
+    top: 12px;
+    bottom: 12px;
+    width: min(400px, calc(100vw - 24px));
+    border-radius: 18px;
+    border: 1px solid var(--border);
+  }
+}
