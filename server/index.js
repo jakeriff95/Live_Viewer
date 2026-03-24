@@ -1,13 +1,10 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { getAdsbData, getAisData, getProviderStatus } from './providers.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const publicDir = config.publicDir;
+const publicDir = path.resolve(config.publicDir);
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -26,12 +23,20 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
-function serveStatic(req, res, pathname) {
-  const requestedPath = pathname === '/' ? '/index.html' : pathname;
-  const normalizedPath = path.normalize(requestedPath).replace(/^([.][.][/\\])+/, '');
-  const filePath = path.join(publicDir, normalizedPath);
+function safePublicPath(pathname) {
+  const requestedPath = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
+  const decodedPath = decodeURIComponent(requestedPath);
+  const absolutePath = path.resolve(publicDir, decodedPath);
+  const relativePath = path.relative(publicDir, absolutePath);
+  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return null;
+  }
+  return absolutePath;
+}
 
-  if (!filePath.startsWith(publicDir)) {
+function serveStatic(res, pathname) {
+  const filePath = safePublicPath(pathname);
+  if (!filePath) {
     sendJson(res, 403, { error: 'Forbidden' });
     return;
   }
@@ -113,7 +118,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    serveStatic(req, res, pathname);
+    serveStatic(res, pathname);
   } catch (error) {
     sendJson(res, 500, {
       error: error.message,
