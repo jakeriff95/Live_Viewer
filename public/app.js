@@ -108,69 +108,278 @@ function createEmptyCollection() {
   return { type: 'FeatureCollection', features: [] };
 }
 
-function entityMatchesFilters(entity) {
-  if (entity.kind === 'aircraft' && !state.filters.showAircraft) return false;
-  if (entity.kind === 'vessel' && !state.filters.showVessels) return false;
-  if (entity.kind === 'aircraft' && (entity.altitudeFt || 0) < state.filters.aircraftAltitudeMin) return false;
-  if (entity.kind === 'vessel' && (entity.speedKts || 0) < state.filters.vesselSpeedMin) return false;
+function smoothLine(points, segments = 6) {
+  if (points.length < 3) return points;
+  const result = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[i - 1] || points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] || p2;
 
-  const term = state.filters.search.trim().toLowerCase();
-  if (!term) return true;
-  const haystack = [
-    entity.label,
-    entity.callsign,
-    entity.icao24,
-    entity.mmsi,
-    entity.name,
-    entity.imo,
-    entity.destination,
-    entity.country,
-  ].filter(Boolean).join(' ').toLowerCase();
-  return haystack.includes(term);
+    for (let step = 0; step < segments; step += 1) {
+      const t = step / segments;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      const x = 0.5 * (
+        (2 * p1[0]) +
+        (-p0[0] + p2[0]) * t +
+        (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
+        (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3
+      );
+      const y = 0.5 * (
+        (2 * p1[1]) +
+        (-p0[1] + p2[1]) * t +
+        (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
+        (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3
+      );
+      result.push([x, y]);
+    }
+  }
+  result.push(points[points.length - 1]);
+  return result;
 }
 
-function upsertHistory(entity) {
-  const entry = state.history.get(entity.id) || [];
-  const last = entry[entry.length - 1];
-  if (!last || last[0] !== entity.lon || last[1] !== entity.lat) {
-    entry.push([entity.lon, entity.lat]);
-  }
-  state.history.set(entity.id, entry.slice(-18));
+function aircraftSubtype(entity) {
+  const category = Number(entity.category);
+  if (category === 8) return 'rotorcraft';
+  if ([2, 3].includes(category)) return 'light';
+  if ([5, 6].includes(category)) return 'heavy';
+  if ([4, 7].includes(category)) return 'jet';
+  return 'generic';
 }
 
-function createIconSvg(kind) {
-  if (kind === 'vessel') {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-      <g fill="none" fill-rule="evenodd">
-        <path fill="#132235" d="M10 39h44l-6 9H16z"/>
-        <path fill="#ff9db2" d="M8 41h48l-8 11H16z"/>
-        <path fill="#ffe2ea" d="M24 19h16v12H24z"/>
-        <path fill="#ffcad7" d="M21 31h22v7H21z"/>
-        <path fill="#ffd9e3" d="M30 12h4v8h-4z"/>
-      </g>
-    </svg>`;
+function vesselSubtype(entity) {
+  const type = String(entity.vesselType || '').toLowerCase();
+  if (type.includes('tanker')) return 'tanker';
+  if (type.includes('cargo') || type.includes('freight') || type.includes('container') || type.includes('bulk')) return 'cargo';
+  if (type.includes('passenger') || type.includes('ferry') || type.includes('cruise')) return 'passenger';
+  if (type.includes('tug') || type.includes('fishing') || type.includes('pleasure') || type.includes('sailing')) return 'small';
+  return 'generic';
+}
+
+function styleForEntity(entity) {
+  if (entity.kind === 'aircraft') {
+    const subtype = aircraftSubtype(entity);
+    if (subtype === 'light') {
+      return { subtype, iconId: 'aircraft-light', color: '#8bf18f', trailColor: '#5edd7a', iconSize: 0.7 };
+    }
+    if (subtype === 'heavy') {
+      return { subtype, iconId: 'aircraft-jet', color: '#7f9bff', trailColor: '#6e84ff', iconSize: 0.82 };
+    }
+    if (subtype === 'rotorcraft') {
+      return { subtype, iconId: 'aircraft-rotor', color: '#ffd166', trailColor: '#f5ba42', iconSize: 0.76 };
+    }
+    if (subtype === 'jet') {
+      return { subtype, iconId: 'aircraft-jet', color: '#67d4ff', trailColor: '#38bdf8', iconSize: 0.78 };
+    }
+    return { subtype, iconId: 'aircraft-jet', color: '#9be4ff', trailColor: '#63cbff', iconSize: 0.74 };
   }
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-    <g fill="none" fill-rule="evenodd">
-      <path fill="#67d4ff" d="M30 4h4l4 20 14 8v4L38 32l3 20-3 2-6-16-6 16-3-2 3-20-14 4v-4l14-8z"/>
-      <path fill="#c7f2ff" d="M30 4h4v18h-4z"/>
-    </g>
-  </svg>`;
+  const subtype = vesselSubtype(entity);
+  if (subtype === 'cargo') {
+    return { subtype, iconId: 'vessel-cargo', color: '#ff9a76', trailColor: '#ff7c5a', iconSize: 0.92 };
+  }
+  if (subtype === 'tanker') {
+    return { subtype, iconId: 'vessel-tanker', color: '#ff6ea9', trailColor: '#ff4f93', iconSize: 0.94 };
+  }
+  if (subtype === 'passenger') {
+    return { subtype, iconId: 'vessel-passenger', color: '#ffe18a', trailColor: '#ffd059', iconSize: 0.96 };
+  }
+  if (subtype === 'small') {
+    return { subtype, iconId: 'vessel-small', color: '#7be7dd', trailColor: '#47d0c4', iconSize: 0.88 };
+  }
+  return { subtype, iconId: 'vessel-cargo', color: '#ffb1c4', trailColor: '#ff89a8', iconSize: 0.9 };
+}
+
+function drawJet(ctx, color) {
+  ctx.save();
+  ctx.translate(32, 32);
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(0, -28);
+  ctx.lineTo(5, -10);
+  ctx.lineTo(18, -3);
+  ctx.lineTo(18, 2);
+  ctx.lineTo(5, 3);
+  ctx.lineTo(9, 26);
+  ctx.lineTo(4, 28);
+  ctx.lineTo(0, 15);
+  ctx.lineTo(-4, 28);
+  ctx.lineTo(-9, 26);
+  ctx.lineTo(-5, 3);
+  ctx.lineTo(-18, 2);
+  ctx.lineTo(-18, -3);
+  ctx.lineTo(-5, -10);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawLightPlane(ctx, color) {
+  ctx.save();
+  ctx.translate(32, 32);
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(0, -26);
+  ctx.lineTo(4, -8);
+  ctx.lineTo(22, -1);
+  ctx.lineTo(22, 4);
+  ctx.lineTo(4, 2);
+  ctx.lineTo(6, 24);
+  ctx.lineTo(1, 26);
+  ctx.lineTo(0, 14);
+  ctx.lineTo(-1, 26);
+  ctx.lineTo(-6, 24);
+  ctx.lineTo(-4, 2);
+  ctx.lineTo(-22, 4);
+  ctx.lineTo(-22, -1);
+  ctx.lineTo(-4, -8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawRotorcraft(ctx, color) {
+  ctx.save();
+  ctx.translate(32, 32);
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(-22, -12);
+  ctx.lineTo(22, -12);
+  ctx.moveTo(0, -18);
+  ctx.lineTo(0, -6);
+  ctx.moveTo(-12, 22);
+  ctx.lineTo(12, 22);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-8, -4);
+  ctx.lineTo(8, -4);
+  ctx.lineTo(11, 10);
+  ctx.lineTo(0, 18);
+  ctx.lineTo(-11, 10);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawCargoVessel(ctx, color) {
+  ctx.save();
+  ctx.translate(32, 32);
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(0, -26);
+  ctx.lineTo(11, -10);
+  ctx.lineTo(11, 18);
+  ctx.lineTo(0, 27);
+  ctx.lineTo(-11, 18);
+  ctx.lineTo(-11, -10);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillRect(-6, -6, 12, 9);
+  ctx.restore();
+}
+
+function drawTanker(ctx, color) {
+  ctx.save();
+  ctx.translate(32, 32);
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(0, -28);
+  ctx.lineTo(10, -14);
+  ctx.lineTo(14, 12);
+  ctx.lineTo(0, 28);
+  ctx.lineTo(-14, 12);
+  ctx.lineTo(-10, -14);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, -2, 5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPassengerVessel(ctx, color) {
+  ctx.save();
+  ctx.translate(32, 32);
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(0, -26);
+  ctx.lineTo(13, -8);
+  ctx.lineTo(9, 20);
+  ctx.lineTo(0, 28);
+  ctx.lineTo(-9, 20);
+  ctx.lineTo(-13, -8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillRect(-8, -7, 16, 7);
+  ctx.fillRect(-5, 3, 10, 5);
+  ctx.restore();
+}
+
+function drawSmallVessel(ctx, color) {
+  ctx.save();
+  ctx.translate(32, 32);
+  ctx.fillStyle = color;
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(0, -23);
+  ctx.lineTo(10, -6);
+  ctx.lineTo(7, 22);
+  ctx.lineTo(0, 28);
+  ctx.lineTo(-7, 22);
+  ctx.lineTo(-10, -6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, -16);
+  ctx.lineTo(0, 6);
+  ctx.moveTo(0, -12);
+  ctx.lineTo(8, -2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function addCanvasImage(imageId, draw) {
+  if (state.map.hasImage(imageId)) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  draw(ctx);
+  state.map.addImage(imageId, canvas, { pixelRatio: 2 });
 }
 
 function ensureMapImages() {
-  for (const kind of ['aircraft', 'vessel']) {
-    const imageId = `${kind}-icon`;
-    if (state.map.hasImage(imageId)) continue;
-    const svg = createIconSvg(kind);
-    const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-    state.map.loadImage(url, (error, image) => {
-      if (!error && image && !state.map.hasImage(imageId)) {
-        state.map.addImage(imageId, image, { pixelRatio: 2 });
-      }
-    });
-  }
+  addCanvasImage('aircraft-jet', (ctx) => drawJet(ctx, '#67d4ff'));
+  addCanvasImage('aircraft-light', (ctx) => drawLightPlane(ctx, '#8bf18f'));
+  addCanvasImage('aircraft-rotor', (ctx) => drawRotorcraft(ctx, '#ffd166'));
+  addCanvasImage('vessel-cargo', (ctx) => drawCargoVessel(ctx, '#ff9a76'));
+  addCanvasImage('vessel-tanker', (ctx) => drawTanker(ctx, '#ff6ea9'));
+  addCanvasImage('vessel-passenger', (ctx) => drawPassengerVessel(ctx, '#ffe18a'));
+  addCanvasImage('vessel-small', (ctx) => drawSmallVessel(ctx, '#7be7dd'));
 }
 
 function buildGeoJson(entities) {
@@ -179,6 +388,8 @@ function buildGeoJson(entities) {
   const selection = createEmptyCollection();
 
   for (const entity of entities) {
+    const style = styleForEntity(entity);
+
     icons.features.push({
       type: 'Feature',
       id: entity.id,
@@ -188,11 +399,9 @@ function buildGeoJson(entities) {
         kind: entity.kind,
         label: entity.label,
         heading: Number.isFinite(entity.heading) ? entity.heading : 0,
-        icon: entity.kind === 'aircraft' ? 'aircraft-icon' : 'vessel-icon',
-        iconSize: entity.kind === 'aircraft' ? 0.62 : 0.74,
-        color: entity.kind === 'aircraft' ? '#67d4ff' : '#ff9db2',
-        speedKts: entity.speedKts ?? 0,
-        altitudeFt: entity.altitudeFt ?? 0,
+        iconId: style.iconId,
+        iconSize: style.iconSize,
+        color: style.color,
       },
     });
 
@@ -200,10 +409,10 @@ function buildGeoJson(entities) {
     if (history.length >= 2) {
       trails.features.push({
         type: 'Feature',
-        geometry: { type: 'LineString', coordinates: history },
+        geometry: { type: 'LineString', coordinates: smoothLine(history, 7) },
         properties: {
           id: entity.id,
-          color: entity.kind === 'aircraft' ? '#37bff8' : '#ff7c9b',
+          color: style.trailColor,
         },
       });
     }
@@ -214,7 +423,8 @@ function buildGeoJson(entities) {
         geometry: { type: 'Point', coordinates: [entity.lon, entity.lat] },
         properties: {
           id: entity.id,
-          radius: entity.kind === 'aircraft' ? 14 : 16,
+          radius: entity.kind === 'aircraft' ? 15 : 17,
+          color: style.color,
         },
       });
     }
@@ -234,15 +444,20 @@ function renderSelected() {
     return;
   }
 
+  const style = styleForEntity(entity);
+  const subtypeLabel = entity.kind === 'aircraft' ? aircraftSubtype(entity) : vesselSubtype(entity);
+
   const rows = [
     ['Type', entity.kind],
+    ['Subtype', subtypeLabel],
     ['Label', entity.label],
     ['ICAO / MMSI', entity.icao24 || entity.mmsi || '—'],
     ['Altitude', entity.altitudeFt ? `${fmtNumber(entity.altitudeFt)} ft` : '—'],
     ['Speed', entity.speedKts ? `${fmtNumber(entity.speedKts)} kts` : '—'],
     ['Heading', Number.isFinite(entity.heading) ? `${Math.round(entity.heading)}°` : '—'],
     ['Destination', entity.destination || '—'],
-    ['Country / Status', entity.country || entity.navStatus || '—'],
+    ['Status', entity.country || entity.navStatus || '—'],
+    ['Trail Color', style.trailColor],
     ['Last Seen', fmtAgo(entity.updatedAt)],
     ['Coordinates', `${entity.lat.toFixed(4)}, ${entity.lon.toFixed(4)}`],
   ];
@@ -291,18 +506,21 @@ function renderEntityList() {
     return;
   }
 
-  dom.entityList.innerHTML = state.visibleEntities.slice(0, 200).map((entity) => `
-    <button class="entity-card ${entity.id === state.selectedId ? 'active' : ''}" data-entity-id="${entity.id}">
-      <div class="entity-topline">
-        <strong>${entity.label}</strong>
-        <span class="badge ${entity.kind === 'vessel' ? 'vessel' : ''}">${entity.kind}</span>
-      </div>
-      <div class="entity-subline">
-        <span>${entity.kind === 'aircraft' ? `${fmtNumber(entity.altitudeFt)} ft · ${fmtNumber(entity.speedKts)} kts` : `${fmtNumber(entity.speedKts)} kts · ${entity.destination || 'No destination'}`}</span>
-        <span>${fmtAgo(entity.updatedAt)}</span>
-      </div>
-    </button>
-  `).join('');
+  dom.entityList.innerHTML = state.visibleEntities.slice(0, 200).map((entity) => {
+    const subtype = entity.kind === 'aircraft' ? aircraftSubtype(entity) : vesselSubtype(entity);
+    return `
+      <button class="entity-card ${entity.id === state.selectedId ? 'active' : ''}" data-entity-id="${entity.id}">
+        <div class="entity-topline">
+          <strong>${entity.label}</strong>
+          <span class="badge ${entity.kind === 'vessel' ? 'vessel' : ''}">${subtype}</span>
+        </div>
+        <div class="entity-subline">
+          <span>${entity.kind === 'aircraft' ? `${fmtNumber(entity.altitudeFt)} ft · ${fmtNumber(entity.speedKts)} kts` : `${fmtNumber(entity.speedKts)} kts · ${entity.destination || 'No destination'}`}</span>
+          <span>${fmtAgo(entity.updatedAt)}</span>
+        </div>
+      </button>
+    `;
+  }).join('');
 
   dom.entityList.querySelectorAll('[data-entity-id]').forEach((button) => {
     button.addEventListener('click', () => selectEntity(button.dataset.entityId));
@@ -320,15 +538,16 @@ function renderMetrics() {
 
 function showPopup(entity) {
   if (!state.popup) return;
+  const subtypeLabel = entity.kind === 'aircraft' ? aircraftSubtype(entity) : vesselSubtype(entity);
   state.popup
     .setLngLat([entity.lon, entity.lat])
     .setHTML(`
       <div class="popup-title">${entity.label}</div>
       <div class="popup-grid">
         <div>Type</div><div>${entity.kind}</div>
+        <div>Subtype</div><div>${subtypeLabel}</div>
         <div>Speed</div><div>${entity.speedKts ? `${fmtNumber(entity.speedKts)} kts` : '—'}</div>
         <div>Altitude</div><div>${entity.altitudeFt ? `${fmtNumber(entity.altitudeFt)} ft` : '—'}</div>
-        <div>Heading</div><div>${Number.isFinite(entity.heading) ? `${Math.round(entity.heading)}°` : '—'}</div>
       </div>
     `)
     .addTo(state.map);
@@ -388,7 +607,14 @@ async function fetchTraffic() {
   const payload = await response.json();
   state.lastPayload = payload;
   state.entities = payload.entities || [];
-  for (const entity of state.entities) upsertHistory(entity);
+  for (const entity of state.entities) {
+    const entry = state.history.get(entity.id) || [];
+    const last = entry[entry.length - 1];
+    if (!last || last[0] !== entity.lon || last[1] !== entity.lat) {
+      entry.push([entity.lon, entity.lat]);
+    }
+    state.history.set(entity.id, entry.slice(-14));
+  }
   refreshUi();
 }
 
@@ -410,10 +636,15 @@ function addSourcesAndLayers() {
     id: 'target-trails',
     type: 'line',
     source: 'trails',
+    layout: {
+      'line-join': 'round',
+      'line-cap': 'round',
+    },
     paint: {
       'line-color': ['get', 'color'],
-      'line-width': 1.7,
-      'line-opacity': 0.8,
+      'line-width': 2.2,
+      'line-opacity': 0.82,
+      'line-blur': 0.25,
     },
   });
 
@@ -424,9 +655,9 @@ function addSourcesAndLayers() {
     paint: {
       'circle-radius': ['get', 'radius'],
       'circle-color': 'rgba(0,0,0,0)',
-      'circle-stroke-width': 2,
-      'circle-stroke-color': '#ffffff',
-      'circle-opacity': 0.95,
+      'circle-stroke-width': 2.3,
+      'circle-stroke-color': ['get', 'color'],
+      'circle-opacity': 0.96,
     },
   });
 
@@ -435,9 +666,10 @@ function addSourcesAndLayers() {
     type: 'symbol',
     source: 'targets',
     layout: {
-      'icon-image': ['get', 'icon'],
+      'icon-image': ['get', 'iconId'],
       'icon-size': ['get', 'iconSize'],
       'icon-rotate': ['get', 'heading'],
+      'icon-rotation-alignment': 'map',
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
       'symbol-sort-key': ['case', ['==', ['get', 'kind'], 'aircraft'], 2, 1],
@@ -448,20 +680,21 @@ function addSourcesAndLayers() {
     id: 'target-labels',
     type: 'symbol',
     source: 'targets',
-    minzoom: 7.2,
+    minzoom: 8.4,
     layout: {
       'text-field': ['get', 'label'],
       'text-font': ['Open Sans Semibold'],
       'text-size': 11,
-      'text-offset': [0, 1.55],
+      'text-offset': [0, 1.45],
       'text-anchor': 'top',
       'text-allow-overlap': false,
       'text-max-width': 10,
+      'text-optional': true,
     },
     paint: {
-      'text-color': '#ebf5ff',
+      'text-color': '#eff7ff',
       'text-halo-color': '#06101d',
-      'text-halo-width': 1.4,
+      'text-halo-width': 1.6,
     },
   });
 
@@ -497,11 +730,7 @@ async function searchLocation() {
 
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`;
-    const response = await fetch(url, {
-      headers: {
-        Accept: 'application/json',
-      },
-    });
+    const response = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error(`Search returned ${response.status}`);
     const results = await response.json();
     if (!Array.isArray(results) || !results.length) {
@@ -619,7 +848,7 @@ function initMap() {
     hash: true,
   });
 
-  state.popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '280px' });
+  state.popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '300px' });
 
   state.map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'top-right');
   state.map.addControl(new maplibregl.ScaleControl({ maxWidth: 140, unit: 'imperial' }), 'bottom-right');
