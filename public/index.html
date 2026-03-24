@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live Viewer</title>
+    <link rel="preconnect" href="https://unpkg.com" />
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div>
+            <p class="eyebrow">Live Viewer</p>
+            <h1>ADS-B + AIS</h1>
+          </div>
+          <button id="refresh-now" class="ghost-button">Refresh</button>
+        </div>
+
+        <div class="section">
+          <div class="search-row">
+            <input id="search-input" type="search" placeholder="Search callsign, vessel, MMSI, ICAO..." />
+          </div>
+          <div class="toggles-grid">
+            <label><input type="checkbox" id="toggle-aircraft" checked /> Aircraft</label>
+            <label><input type="checkbox" id="toggle-vessels" checked /> Vessels</label>
+            <label><input type="checkbox" id="toggle-trails" checked /> Trails</label>
+            <label><input type="checkbox" id="toggle-labels" checked /> Labels</label>
+            <label><input type="checkbox" id="toggle-3d" checked /> 3D Columns</label>
+            <label><input type="checkbox" id="toggle-follow" /> Follow Selected</label>
+          </div>
+        </div>
+
+        <div class="section section-tight">
+          <div class="filters-grid">
+            <label>
+              Aircraft Altitude ≥
+              <input id="aircraft-altitude-min" type="number" min="0" step="1000" value="0" />
+            </label>
+            <label>
+              Vessel Speed ≥
+              <input id="vessel-speed-min" type="number" min="0" step="1" value="0" />
+            </label>
+          </div>
+        </div>
+
+        <div class="section metrics">
+          <div class="metric-card">
+            <span class="metric-label">Visible</span>
+            <strong id="metric-visible">0</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Aircraft</span>
+            <strong id="metric-aircraft">0</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Vessels</span>
+            <strong id="metric-vessels">0</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Updated</span>
+            <strong id="metric-updated">--</strong>
+          </div>
+        </div>
+
+        <div class="section details-section">
+          <div class="section-header-row">
+            <h2>Selected</h2>
+            <button id="clear-selection" class="text-button">Clear</button>
+          </div>
+          <div id="selected-details" class="selected-empty">Nothing selected.</div>
+        </div>
+
+        <div class="section status-section">
+          <div class="section-header-row">
+            <h2>Feed Status</h2>
+          </div>
+          <div id="provider-status" class="status-stack"></div>
+        </div>
+
+        <div class="section entities-section">
+          <div class="section-header-row">
+            <h2>Visible Targets</h2>
+            <span id="entity-count-pill" class="pill">0</span>
+          </div>
+          <div id="entity-list" class="entity-list"></div>
+        </div>
+      </aside>
+
+      <main class="map-shell">
+        <div id="hud" class="hud">
+          <div class="hud-pill">Scroll: zoom</div>
+          <div class="hud-pill">Shift + drag: rotate</div>
+          <div class="hud-pill">Pitch: 3D tracking mode</div>
+        </div>
+        <div id="map"></div>
+      </main>
+    </div>
+
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
