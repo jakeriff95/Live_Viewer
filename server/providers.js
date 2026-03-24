@@ -240,7 +240,7 @@ function demoVessels(bbox) {
       speedKts: 16,
       destination: 'LOS ANGELES',
       updatedAt: nowIso(),
-      raw: {},
+      raw: { isDemo: true },
     },
     {
       id: 'ais:demo-538090091',
@@ -260,7 +260,7 @@ function demoVessels(bbox) {
       speedKts: 0,
       destination: 'SINGAPORE',
       updatedAt: nowIso(),
-      raw: {},
+      raw: { isDemo: true },
     },
   ];
 }
@@ -298,6 +298,7 @@ function normalizeAisMessage(message) {
     raw: {
       messageType,
       metadata,
+      isDemo: false,
     },
   };
 }
@@ -327,18 +328,24 @@ function ensureAisStreamSubscription(bbox) {
   };
 
   try {
-    aisSocket = new WebSocket('wss://stream.aisstream.io/v0/stream');
-    aisSocket.addEventListener('open', () => {
+    const socket = new WebSocket('wss://stream.aisstream.io/v0/stream');
+    aisSocket = socket;
+
+    socket.addEventListener('open', () => {
+      if (socket !== aisSocket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
       const [west, south, east, north] = bbox;
       const payload = {
         APIKey: config.aisstreamApiKey,
         BoundingBoxes: [[[south, west], [north, east]]],
         FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
       };
-      aisSocket.send(JSON.stringify(payload));
+      socket.send(JSON.stringify(payload));
     });
 
-    aisSocket.addEventListener('message', (event) => {
+    socket.addEventListener('message', (event) => {
+      if (socket !== aisSocket) return;
       try {
         const message = JSON.parse(String(event.data));
         const entity = normalizeAisMessage(message);
@@ -351,12 +358,15 @@ function ensureAisStreamSubscription(bbox) {
       }
     });
 
-    aisSocket.addEventListener('error', () => {
+    socket.addEventListener('error', () => {
+      if (socket !== aisSocket) return;
       aisSocketState.lastError = 'AISStream socket error';
     });
 
-    aisSocket.addEventListener('close', () => {
-      aisSocket = null;
+    socket.addEventListener('close', () => {
+      if (socket === aisSocket) {
+        aisSocket = null;
+      }
     });
   } catch (error) {
     aisSocketState.lastError = error.message;
