@@ -161,35 +161,19 @@ function vesselSubtype(entity) {
 function styleForEntity(entity) {
   if (entity.kind === 'aircraft') {
     const subtype = aircraftSubtype(entity);
-    if (subtype === 'light') {
-      return { subtype, iconId: 'aircraft-light', color: '#8bf18f', trailColor: '#5edd7a', iconSize: 0.7 };
-    }
-    if (subtype === 'heavy') {
-      return { subtype, iconId: 'aircraft-jet', color: '#7f9bff', trailColor: '#6e84ff', iconSize: 0.82 };
-    }
-    if (subtype === 'rotorcraft') {
-      return { subtype, iconId: 'aircraft-rotor', color: '#ffd166', trailColor: '#f5ba42', iconSize: 0.76 };
-    }
-    if (subtype === 'jet') {
-      return { subtype, iconId: 'aircraft-jet', color: '#67d4ff', trailColor: '#38bdf8', iconSize: 0.78 };
-    }
-    return { subtype, iconId: 'aircraft-jet', color: '#9be4ff', trailColor: '#63cbff', iconSize: 0.74 };
+    if (subtype === 'light') return { subtype, iconId: 'aircraft-light', color: '#8bf18f', trailColor: '#5edd7a', iconSize: 0.7, fallbackRadius: 5.5 };
+    if (subtype === 'heavy') return { subtype, iconId: 'aircraft-jet', color: '#7f9bff', trailColor: '#6e84ff', iconSize: 0.82, fallbackRadius: 6.5 };
+    if (subtype === 'rotorcraft') return { subtype, iconId: 'aircraft-rotor', color: '#ffd166', trailColor: '#f5ba42', iconSize: 0.76, fallbackRadius: 6 };
+    if (subtype === 'jet') return { subtype, iconId: 'aircraft-jet', color: '#67d4ff', trailColor: '#38bdf8', iconSize: 0.78, fallbackRadius: 6.2 };
+    return { subtype, iconId: 'aircraft-jet', color: '#9be4ff', trailColor: '#63cbff', iconSize: 0.74, fallbackRadius: 5.8 };
   }
 
   const subtype = vesselSubtype(entity);
-  if (subtype === 'cargo') {
-    return { subtype, iconId: 'vessel-cargo', color: '#ff9a76', trailColor: '#ff7c5a', iconSize: 0.92 };
-  }
-  if (subtype === 'tanker') {
-    return { subtype, iconId: 'vessel-tanker', color: '#ff6ea9', trailColor: '#ff4f93', iconSize: 0.94 };
-  }
-  if (subtype === 'passenger') {
-    return { subtype, iconId: 'vessel-passenger', color: '#ffe18a', trailColor: '#ffd059', iconSize: 0.96 };
-  }
-  if (subtype === 'small') {
-    return { subtype, iconId: 'vessel-small', color: '#7be7dd', trailColor: '#47d0c4', iconSize: 0.88 };
-  }
-  return { subtype, iconId: 'vessel-cargo', color: '#ffb1c4', trailColor: '#ff89a8', iconSize: 0.9 };
+  if (subtype === 'cargo') return { subtype, iconId: 'vessel-cargo', color: '#ff9a76', trailColor: '#ff7c5a', iconSize: 0.92, fallbackRadius: 7 };
+  if (subtype === 'tanker') return { subtype, iconId: 'vessel-tanker', color: '#ff6ea9', trailColor: '#ff4f93', iconSize: 0.94, fallbackRadius: 7.2 };
+  if (subtype === 'passenger') return { subtype, iconId: 'vessel-passenger', color: '#ffe18a', trailColor: '#ffd059', iconSize: 0.96, fallbackRadius: 7.2 };
+  if (subtype === 'small') return { subtype, iconId: 'vessel-small', color: '#7be7dd', trailColor: '#47d0c4', iconSize: 0.88, fallbackRadius: 6.8 };
+  return { subtype, iconId: 'vessel-cargo', color: '#ffb1c4', trailColor: '#ff89a8', iconSize: 0.9, fallbackRadius: 7 };
 }
 
 function drawJet(ctx, color) {
@@ -369,7 +353,8 @@ function addCanvasImage(imageId, draw) {
   canvas.height = 64;
   const ctx = canvas.getContext('2d');
   draw(ctx);
-  state.map.addImage(imageId, canvas, { pixelRatio: 2 });
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  state.map.addImage(imageId, imageData, { pixelRatio: 2 });
 }
 
 function ensureMapImages() {
@@ -382,10 +367,32 @@ function ensureMapImages() {
   addCanvasImage('vessel-small', (ctx) => drawSmallVessel(ctx, '#7be7dd'));
 }
 
+function entityMatchesFilters(entity) {
+  if (entity.kind === 'aircraft' && !state.filters.showAircraft) return false;
+  if (entity.kind === 'vessel' && !state.filters.showVessels) return false;
+  if (entity.kind === 'aircraft' && (entity.altitudeFt || 0) < state.filters.aircraftAltitudeMin) return false;
+  if (entity.kind === 'vessel' && (entity.speedKts || 0) < state.filters.vesselSpeedMin) return false;
+
+  const term = state.filters.search.trim().toLowerCase();
+  if (!term) return true;
+  const haystack = [
+    entity.label,
+    entity.callsign,
+    entity.icao24,
+    entity.mmsi,
+    entity.name,
+    entity.imo,
+    entity.destination,
+    entity.country,
+  ].filter(Boolean).join(' ').toLowerCase();
+  return haystack.includes(term);
+}
+
 function buildGeoJson(entities) {
   const icons = createEmptyCollection();
   const trails = createEmptyCollection();
   const selection = createEmptyCollection();
+  const fallback = createEmptyCollection();
 
   for (const entity of entities) {
     const style = styleForEntity(entity);
@@ -396,12 +403,22 @@ function buildGeoJson(entities) {
       geometry: { type: 'Point', coordinates: [entity.lon, entity.lat] },
       properties: {
         id: entity.id,
-        kind: entity.kind,
         label: entity.label,
         heading: Number.isFinite(entity.heading) ? entity.heading : 0,
         iconId: style.iconId,
         iconSize: style.iconSize,
         color: style.color,
+      },
+    });
+
+    fallback.features.push({
+      type: 'Feature',
+      id: `${entity.id}:fallback`,
+      geometry: { type: 'Point', coordinates: [entity.lon, entity.lat] },
+      properties: {
+        id: entity.id,
+        color: style.color,
+        radius: style.fallbackRadius,
       },
     });
 
@@ -423,14 +440,14 @@ function buildGeoJson(entities) {
         geometry: { type: 'Point', coordinates: [entity.lon, entity.lat] },
         properties: {
           id: entity.id,
-          radius: entity.kind === 'aircraft' ? 15 : 17,
+          radius: style.fallbackRadius + 6,
           color: style.color,
         },
       });
     }
   }
 
-  return { icons, trails, selection };
+  return { icons, trails, selection, fallback };
 }
 
 function getSelectedEntity() {
@@ -446,7 +463,6 @@ function renderSelected() {
 
   const style = styleForEntity(entity);
   const subtypeLabel = entity.kind === 'aircraft' ? aircraftSubtype(entity) : vesselSubtype(entity);
-
   const rows = [
     ['Type', entity.kind],
     ['Subtype', subtypeLabel],
@@ -564,10 +580,11 @@ function refreshUi() {
       return bMetric - aMetric;
     });
 
-  const geo = buildGeoJson(state.visibleEntities);
-  state.map.getSource('targets')?.setData(geo.icons);
-  state.map.getSource('trails')?.setData(geo.trails);
-  state.map.getSource('selection')?.setData(geo.selection);
+    const geo = buildGeoJson(state.visibleEntities);
+    state.map.getSource('targets')?.setData(geo.icons);
+    state.map.getSource('trails')?.setData(geo.trails);
+    state.map.getSource('selection')?.setData(geo.selection);
+    state.map.getSource('target-fallback')?.setData(geo.fallback);
 
   state.map.setLayoutProperty('target-trails', 'visibility', state.filters.showTrails ? 'visible' : 'none');
   state.map.setLayoutProperty('target-labels', 'visibility', state.filters.showLabels ? 'visible' : 'none');
@@ -631,6 +648,7 @@ function addSourcesAndLayers() {
   state.map.addSource('targets', { type: 'geojson', data: createEmptyCollection() });
   state.map.addSource('trails', { type: 'geojson', data: createEmptyCollection() });
   state.map.addSource('selection', { type: 'geojson', data: createEmptyCollection() });
+  state.map.addSource('target-fallback', { type: 'geojson', data: createEmptyCollection() });
 
   state.map.addLayer({
     id: 'target-trails',
@@ -662,6 +680,19 @@ function addSourcesAndLayers() {
   });
 
   state.map.addLayer({
+    id: 'target-fallback-layer',
+    type: 'circle',
+    source: 'target-fallback',
+    paint: {
+      'circle-radius': ['get', 'radius'],
+      'circle-color': ['get', 'color'],
+      'circle-stroke-width': 1.3,
+      'circle-stroke-color': '#ffffff',
+      'circle-opacity': 0.88,
+    },
+  });
+
+  state.map.addLayer({
     id: 'target-icons',
     type: 'symbol',
     source: 'targets',
@@ -672,7 +703,7 @@ function addSourcesAndLayers() {
       'icon-rotation-alignment': 'map',
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
-      'symbol-sort-key': ['case', ['==', ['get', 'kind'], 'aircraft'], 2, 1],
+      'symbol-sort-key': 10,
     },
   });
 
@@ -680,7 +711,7 @@ function addSourcesAndLayers() {
     id: 'target-labels',
     type: 'symbol',
     source: 'targets',
-    minzoom: 8.4,
+    minzoom: 7.6,
     layout: {
       'text-field': ['get', 'label'],
       'text-font': ['Open Sans Semibold'],
@@ -698,7 +729,7 @@ function addSourcesAndLayers() {
     },
   });
 
-  ['target-icons', 'target-labels', 'target-selection'].forEach((layerId) => {
+  ['target-icons', 'target-labels', 'target-selection', 'target-fallback-layer'].forEach((layerId) => {
     state.map.on('click', layerId, (event) => {
       const feature = event.features?.[0];
       const entityId = feature?.properties?.id;
@@ -715,7 +746,7 @@ function addSourcesAndLayers() {
   });
 
   state.map.on('click', (event) => {
-    const features = state.map.queryRenderedFeatures(event.point, { layers: ['target-icons', 'target-labels', 'target-selection'] });
+    const features = state.map.queryRenderedFeatures(event.point, { layers: ['target-icons', 'target-labels', 'target-selection', 'target-fallback-layer'] });
     if (!features.length) {
       state.selectedId = null;
       refreshUi();
