@@ -15,38 +15,62 @@
           <div>
             <p class="eyebrow">Live Viewer</p>
             <h1>ADS-B + AIS</h1>
+            <p class="subhead">Live aircraft and vessel tracking in one readable view.</p>
           </div>
-          <button id="refresh-now" class="ghost-button">Refresh</button>
+          <button id="refresh-now" class="ghost-button" type="button">Refresh</button>
         </div>
 
-        <div class="section">
+        <section class="section">
+          <div class="section-header-row">
+            <h2>Location</h2>
+          </div>
           <div class="search-row">
-            <input id="search-input" type="search" placeholder="Search callsign, vessel, MMSI, ICAO..." />
+            <div class="input-row">
+              <input id="location-input" type="search" placeholder="Search city, airport, port, address..." />
+              <button id="location-search" class="primary-button" type="button">Go</button>
+            </div>
+            <div class="input-row input-row-split">
+              <button id="current-location" class="ghost-button" type="button">Use My Location</button>
+              <button id="reset-view" class="ghost-button" type="button">Reset View</button>
+            </div>
+            <div id="location-status" class="helper-text">Defaulting to Washington, DC until your browser location is available.</div>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-header-row">
+            <h2>Display</h2>
           </div>
           <div class="toggles-grid">
-            <label><input type="checkbox" id="toggle-aircraft" checked /> Aircraft</label>
-            <label><input type="checkbox" id="toggle-vessels" checked /> Vessels</label>
-            <label><input type="checkbox" id="toggle-trails" checked /> Trails</label>
-            <label><input type="checkbox" id="toggle-labels" checked /> Labels</label>
-            <label><input type="checkbox" id="toggle-3d" checked /> 3D Columns</label>
-            <label><input type="checkbox" id="toggle-follow" /> Follow Selected</label>
+            <label class="toggle-item"><input type="checkbox" id="toggle-aircraft" checked /> <span>Aircraft</span></label>
+            <label class="toggle-item"><input type="checkbox" id="toggle-vessels" checked /> <span>Vessels</span></label>
+            <label class="toggle-item"><input type="checkbox" id="toggle-trails" checked /> <span>Trails</span></label>
+            <label class="toggle-item"><input type="checkbox" id="toggle-labels" checked /> <span>Labels</span></label>
+            <label class="toggle-item"><input type="checkbox" id="toggle-follow" /> <span>Follow Selected</span></label>
           </div>
-        </div>
+        </section>
 
-        <div class="section section-tight">
+        <section class="section section-tight">
+          <div class="section-header-row">
+            <h2>Filters</h2>
+          </div>
           <div class="filters-grid">
             <label>
-              Aircraft Altitude ≥
+              Search Visible Targets
+              <input id="search-input" type="search" placeholder="Callsign, vessel, MMSI, ICAO, destination..." />
+            </label>
+            <label>
+              Aircraft Altitude Minimum
               <input id="aircraft-altitude-min" type="number" min="0" step="1000" value="0" />
             </label>
             <label>
-              Vessel Speed ≥
+              Vessel Speed Minimum
               <input id="vessel-speed-min" type="number" min="0" step="1" value="0" />
             </label>
           </div>
-        </div>
+        </section>
 
-        <div class="section metrics">
+        <section class="section metrics">
           <div class="metric-card">
             <span class="metric-label">Visible</span>
             <strong id="metric-visible">0</strong>
@@ -63,37 +87,37 @@
             <span class="metric-label">Updated</span>
             <strong id="metric-updated">--</strong>
           </div>
-        </div>
+        </section>
 
-        <div class="section details-section">
+        <section class="section details-section">
           <div class="section-header-row">
-            <h2>Selected</h2>
-            <button id="clear-selection" class="text-button">Clear</button>
+            <h2>Selected Target</h2>
+            <button id="clear-selection" class="text-button" type="button">Clear</button>
           </div>
-          <div id="selected-details" class="selected-empty">Nothing selected.</div>
-        </div>
+          <div id="selected-details" class="selected-empty">Select an aircraft or vessel to inspect it.</div>
+        </section>
 
-        <div class="section status-section">
+        <section class="section status-section">
           <div class="section-header-row">
             <h2>Feed Status</h2>
           </div>
           <div id="provider-status" class="status-stack"></div>
-        </div>
+        </section>
 
-        <div class="section entities-section">
+        <section class="section entities-section">
           <div class="section-header-row">
             <h2>Visible Targets</h2>
             <span id="entity-count-pill" class="pill">0</span>
           </div>
           <div id="entity-list" class="entity-list"></div>
-        </div>
+        </section>
       </aside>
 
       <main class="map-shell">
-        <div id="hud" class="hud">
-          <div class="hud-pill">Scroll: zoom</div>
-          <div class="hud-pill">Shift + drag: rotate</div>
-          <div class="hud-pill">Pitch: 3D tracking mode</div>
+        <div class="hud">
+          <div class="hud-pill">Drag to pan</div>
+          <div class="hud-pill">Scroll to zoom</div>
+          <div class="hud-pill">Shift + drag to rotate</div>
         </div>
         <div id="map"></div>
       </main>

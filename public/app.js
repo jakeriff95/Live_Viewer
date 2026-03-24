@@ -1,3 +1,10 @@
+const DEFAULT_VIEW = {
+  center: [-77.0369, 38.9072],
+  zoom: 7.2,
+  pitch: 42,
+  bearing: -12,
+};
+
 const state = {
   map: null,
   popup: null,
@@ -6,18 +13,18 @@ const state = {
   visibleEntities: [],
   selectedId: null,
   followSelected: false,
+  history: new Map(),
+  locationInitialized: false,
+  refreshHandle: null,
   filters: {
     showAircraft: true,
     showVessels: true,
     showTrails: true,
     showLabels: true,
-    show3d: true,
     aircraftAltitudeMin: 0,
     vesselSpeedMin: 0,
     search: '',
   },
-  history: new Map(),
-  refreshHandle: null,
 };
 
 const dom = {
@@ -36,10 +43,14 @@ const dom = {
   toggleVessels: document.querySelector('#toggle-vessels'),
   toggleTrails: document.querySelector('#toggle-trails'),
   toggleLabels: document.querySelector('#toggle-labels'),
-  toggle3d: document.querySelector('#toggle-3d'),
   toggleFollow: document.querySelector('#toggle-follow'),
   aircraftAltitudeMin: document.querySelector('#aircraft-altitude-min'),
   vesselSpeedMin: document.querySelector('#vessel-speed-min'),
+  locationInput: document.querySelector('#location-input'),
+  locationSearch: document.querySelector('#location-search'),
+  currentLocation: document.querySelector('#current-location'),
+  resetView: document.querySelector('#reset-view'),
+  locationStatus: document.querySelector('#location-status'),
 };
 
 function fmtNumber(value) {
@@ -65,6 +76,10 @@ function fmtAgo(value) {
   return `${diffHr}h ago`;
 }
 
+function setLocationStatus(message) {
+  dom.locationStatus.textContent = message;
+}
+
 function getMapStyle() {
   return {
     version: 8,
@@ -83,7 +98,7 @@ function getMapStyle() {
       }
     },
     layers: [
-      { id: 'background', type: 'background', paint: { 'background-color': '#050b16' } },
+      { id: 'background', type: 'background', paint: { 'background-color': '#040b16' } },
       { id: 'carto', type: 'raster', source: 'carto' }
     ]
   };
@@ -91,18 +106,6 @@ function getMapStyle() {
 
 function createEmptyCollection() {
   return { type: 'FeatureCollection', features: [] };
-}
-
-function toSquarePolygon(lon, lat, radiusKm = 4) {
-  const latOffset = radiusKm / 110.574;
-  const lonOffset = radiusKm / (111.32 * Math.cos((lat * Math.PI) / 180) || 1);
-  return [[
-    [lon - lonOffset, lat - latOffset],
-    [lon + lonOffset, lat - latOffset],
-    [lon + lonOffset, lat + latOffset],
-    [lon - lonOffset, lat + latOffset],
-    [lon - lonOffset, lat - latOffset],
-  ]];
 }
 
 function entityMatchesFilters(entity) {
@@ -130,18 +133,53 @@ function upsertHistory(entity) {
   const entry = state.history.get(entity.id) || [];
   const last = entry[entry.length - 1];
   if (!last || last[0] !== entity.lon || last[1] !== entity.lat) {
-    entry.push([entity.lon, entity.lat, entity.updatedAt]);
+    entry.push([entity.lon, entity.lat]);
   }
-  state.history.set(entity.id, entry.slice(-40));
+  state.history.set(entity.id, entry.slice(-18));
+}
+
+function createIconSvg(kind) {
+  if (kind === 'vessel') {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+      <g fill="none" fill-rule="evenodd">
+        <path fill="#132235" d="M10 39h44l-6 9H16z"/>
+        <path fill="#ff9db2" d="M8 41h48l-8 11H16z"/>
+        <path fill="#ffe2ea" d="M24 19h16v12H24z"/>
+        <path fill="#ffcad7" d="M21 31h22v7H21z"/>
+        <path fill="#ffd9e3" d="M30 12h4v8h-4z"/>
+      </g>
+    </svg>`;
+  }
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+    <g fill="none" fill-rule="evenodd">
+      <path fill="#67d4ff" d="M30 4h4l4 20 14 8v4L38 32l3 20-3 2-6-16-6 16-3-2 3-20-14 4v-4l14-8z"/>
+      <path fill="#c7f2ff" d="M30 4h4v18h-4z"/>
+    </g>
+  </svg>`;
+}
+
+function ensureMapImages() {
+  for (const kind of ['aircraft', 'vessel']) {
+    const imageId = `${kind}-icon`;
+    if (state.map.hasImage(imageId)) continue;
+    const svg = createIconSvg(kind);
+    const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    state.map.loadImage(url, (error, image) => {
+      if (!error && image && !state.map.hasImage(imageId)) {
+        state.map.addImage(imageId, image, { pixelRatio: 2 });
+      }
+    });
+  }
 }
 
 function buildGeoJson(entities) {
-  const points = createEmptyCollection();
+  const icons = createEmptyCollection();
   const trails = createEmptyCollection();
-  const extrusions = createEmptyCollection();
+  const selection = createEmptyCollection();
 
   for (const entity of entities) {
-    points.features.push({
+    icons.features.push({
       type: 'Feature',
       id: entity.id,
       geometry: { type: 'Point', coordinates: [entity.lon, entity.lat] },
@@ -150,8 +188,9 @@ function buildGeoJson(entities) {
         kind: entity.kind,
         label: entity.label,
         heading: Number.isFinite(entity.heading) ? entity.heading : 0,
-        textGlyph: entity.kind === 'aircraft' ? '▲' : '◆',
-        color: entity.kind === 'aircraft' ? '#7dd3fc' : '#fda4af',
+        icon: entity.kind === 'aircraft' ? 'aircraft-icon' : 'vessel-icon',
+        iconSize: entity.kind === 'aircraft' ? 0.62 : 0.74,
+        color: entity.kind === 'aircraft' ? '#67d4ff' : '#ff9db2',
         speedKts: entity.speedKts ?? 0,
         altitudeFt: entity.altitudeFt ?? 0,
       },
@@ -161,37 +200,27 @@ function buildGeoJson(entities) {
     if (history.length >= 2) {
       trails.features.push({
         type: 'Feature',
-        geometry: {
-          type: 'LineString',
-          coordinates: history.map(([lon, lat]) => [lon, lat]),
-        },
+        geometry: { type: 'LineString', coordinates: history },
         properties: {
           id: entity.id,
-          kind: entity.kind,
-          color: entity.kind === 'aircraft' ? '#38bdf8' : '#fb7185',
+          color: entity.kind === 'aircraft' ? '#37bff8' : '#ff7c9b',
         },
       });
     }
 
-    extrusions.features.push({
-      type: 'Feature',
-      geometry: {
-        type: 'Polygon',
-        coordinates: toSquarePolygon(entity.lon, entity.lat, entity.kind === 'aircraft' ? 5 : 7),
-      },
-      properties: {
-        id: entity.id,
-        kind: entity.kind,
-        color: entity.kind === 'aircraft' ? '#0ea5e9' : '#f43f5e',
-        height: entity.kind === 'aircraft'
-          ? Math.min((entity.altitudeFt || 0) * 0.05, 6500)
-          : Math.min((entity.speedKts || 0) * 55, 1600),
-        base: 0,
-      },
-    });
+    if (entity.id === state.selectedId) {
+      selection.features.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [entity.lon, entity.lat] },
+        properties: {
+          id: entity.id,
+          radius: entity.kind === 'aircraft' ? 14 : 16,
+        },
+      });
+    }
   }
 
-  return { points, trails, extrusions };
+  return { icons, trails, selection };
 }
 
 function getSelectedEntity() {
@@ -201,19 +230,19 @@ function getSelectedEntity() {
 function renderSelected() {
   const entity = getSelectedEntity();
   if (!entity) {
-    dom.selectedDetails.innerHTML = '<div class="selected-empty">Nothing selected.</div>';
+    dom.selectedDetails.innerHTML = '<div class="selected-empty">Select an aircraft or vessel to inspect it.</div>';
     return;
   }
 
   const rows = [
     ['Type', entity.kind],
     ['Label', entity.label],
-    ['Source', entity.source],
     ['ICAO / MMSI', entity.icao24 || entity.mmsi || '—'],
     ['Altitude', entity.altitudeFt ? `${fmtNumber(entity.altitudeFt)} ft` : '—'],
     ['Speed', entity.speedKts ? `${fmtNumber(entity.speedKts)} kts` : '—'],
     ['Heading', Number.isFinite(entity.heading) ? `${Math.round(entity.heading)}°` : '—'],
     ['Destination', entity.destination || '—'],
+    ['Country / Status', entity.country || entity.navStatus || '—'],
     ['Last Seen', fmtAgo(entity.updatedAt)],
     ['Coordinates', `${entity.lat.toFixed(4)}, ${entity.lon.toFixed(4)}`],
   ];
@@ -255,24 +284,21 @@ function renderProviderStatus() {
 }
 
 function renderEntityList() {
-  const selectedId = state.selectedId;
   dom.entityCountPill.textContent = String(state.visibleEntities.length);
 
   if (!state.visibleEntities.length) {
-    dom.entityList.innerHTML = '<div class="selected-empty">No targets match the current filters.</div>';
+    dom.entityList.innerHTML = '<div class="selected-empty">No targets match the current filters in this viewport.</div>';
     return;
   }
 
-  dom.entityList.innerHTML = state.visibleEntities.slice(0, 250).map((entity) => `
-    <button class="entity-card ${entity.id === selectedId ? 'active' : ''}" data-entity-id="${entity.id}">
+  dom.entityList.innerHTML = state.visibleEntities.slice(0, 200).map((entity) => `
+    <button class="entity-card ${entity.id === state.selectedId ? 'active' : ''}" data-entity-id="${entity.id}">
       <div class="entity-topline">
         <strong>${entity.label}</strong>
         <span class="badge ${entity.kind === 'vessel' ? 'vessel' : ''}">${entity.kind}</span>
       </div>
       <div class="entity-subline">
-        <span>${entity.kind === 'aircraft'
-          ? `${fmtNumber(entity.altitudeFt)} ft · ${fmtNumber(entity.speedKts)} kts`
-          : `${fmtNumber(entity.speedKts)} kts · ${entity.destination || 'No destination'}`}</span>
+        <span>${entity.kind === 'aircraft' ? `${fmtNumber(entity.altitudeFt)} ft · ${fmtNumber(entity.speedKts)} kts` : `${fmtNumber(entity.speedKts)} kts · ${entity.destination || 'No destination'}`}</span>
         <span>${fmtAgo(entity.updatedAt)}</span>
       </div>
     </button>
@@ -294,16 +320,14 @@ function renderMetrics() {
 
 function showPopup(entity) {
   if (!state.popup) return;
-  const speedLine = entity.speedKts ? `${fmtNumber(entity.speedKts)} kts` : '—';
-  const altitudeLine = entity.altitudeFt ? `${fmtNumber(entity.altitudeFt)} ft` : '—';
   state.popup
     .setLngLat([entity.lon, entity.lat])
     .setHTML(`
       <div class="popup-title">${entity.label}</div>
       <div class="popup-grid">
         <div>Type</div><div>${entity.kind}</div>
-        <div>Speed</div><div>${speedLine}</div>
-        <div>Altitude</div><div>${altitudeLine}</div>
+        <div>Speed</div><div>${entity.speedKts ? `${fmtNumber(entity.speedKts)} kts` : '—'}</div>
+        <div>Altitude</div><div>${entity.altitudeFt ? `${fmtNumber(entity.altitudeFt)} ft` : '—'}</div>
         <div>Heading</div><div>${Number.isFinite(entity.heading) ? `${Math.round(entity.heading)}°` : '—'}</div>
       </div>
     `)
@@ -322,14 +346,12 @@ function refreshUi() {
     });
 
   const geo = buildGeoJson(state.visibleEntities);
-  state.map.getSource('targets')?.setData(geo.points);
+  state.map.getSource('targets')?.setData(geo.icons);
   state.map.getSource('trails')?.setData(geo.trails);
-  state.map.getSource('extrusions')?.setData(geo.extrusions);
+  state.map.getSource('selection')?.setData(geo.selection);
 
-  state.map.setLayoutProperty('target-labels', 'visibility', state.filters.showLabels ? 'visible' : 'none');
-  state.map.setLayoutProperty('target-glyphs', 'visibility', 'visible');
   state.map.setLayoutProperty('target-trails', 'visibility', state.filters.showTrails ? 'visible' : 'none');
-  state.map.setLayoutProperty('target-columns', 'visibility', state.filters.show3d ? 'visible' : 'none');
+  state.map.setLayoutProperty('target-labels', 'visibility', state.filters.showLabels ? 'visible' : 'none');
 
   renderMetrics();
   renderSelected();
@@ -340,7 +362,7 @@ function refreshUi() {
   if (selected) {
     showPopup(selected);
     if (state.followSelected) {
-      state.map.easeTo({ center: [selected.lon, selected.lat], duration: 800, essential: true });
+      state.map.easeTo({ center: [selected.lon, selected.lat], duration: 700, essential: true });
     }
   } else {
     state.popup?.remove();
@@ -354,7 +376,7 @@ function selectEntity(entityId) {
     refreshUi();
     return;
   }
-  state.map.easeTo({ center: [entity.lon, entity.lat], zoom: Math.max(state.map.getZoom(), entity.kind === 'aircraft' ? 7 : 9), duration: 700 });
+  state.map.easeTo({ center: [entity.lon, entity.lat], zoom: Math.max(state.map.getZoom(), entity.kind === 'aircraft' ? 7.4 : 8.3), duration: 600 });
   refreshUi();
 }
 
@@ -373,28 +395,16 @@ async function fetchTraffic() {
 function scheduleRefresh() {
   clearInterval(state.refreshHandle);
   state.refreshHandle = setInterval(() => {
-    fetchTraffic().catch((error) => {
-      console.error(error);
-    });
+    fetchTraffic().catch((error) => console.error(error));
   }, 8000);
 }
 
 function addSourcesAndLayers() {
+  ensureMapImages();
+
   state.map.addSource('targets', { type: 'geojson', data: createEmptyCollection() });
   state.map.addSource('trails', { type: 'geojson', data: createEmptyCollection() });
-  state.map.addSource('extrusions', { type: 'geojson', data: createEmptyCollection() });
-
-  state.map.addLayer({
-    id: 'target-columns',
-    type: 'fill-extrusion',
-    source: 'extrusions',
-    paint: {
-      'fill-extrusion-color': ['get', 'color'],
-      'fill-extrusion-height': ['get', 'height'],
-      'fill-extrusion-base': ['get', 'base'],
-      'fill-extrusion-opacity': 0.38,
-    },
-  });
+  state.map.addSource('selection', { type: 'geojson', data: createEmptyCollection() });
 
   state.map.addLayer({
     id: 'target-trails',
@@ -402,28 +412,35 @@ function addSourcesAndLayers() {
     source: 'trails',
     paint: {
       'line-color': ['get', 'color'],
-      'line-width': 2,
+      'line-width': 1.7,
       'line-opacity': 0.8,
     },
   });
 
   state.map.addLayer({
-    id: 'target-glyphs',
+    id: 'target-selection',
+    type: 'circle',
+    source: 'selection',
+    paint: {
+      'circle-radius': ['get', 'radius'],
+      'circle-color': 'rgba(0,0,0,0)',
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#ffffff',
+      'circle-opacity': 0.95,
+    },
+  });
+
+  state.map.addLayer({
+    id: 'target-icons',
     type: 'symbol',
     source: 'targets',
     layout: {
-      'text-field': ['get', 'textGlyph'],
-      'text-size': ['case', ['==', ['get', 'kind'], 'aircraft'], 18, 16],
-      'text-rotate': ['get', 'heading'],
-      'text-allow-overlap': true,
-      'text-ignore-placement': true,
-      'text-offset': [0, 0],
-      'text-font': ['Open Sans Bold'],
-    },
-    paint: {
-      'text-color': ['get', 'color'],
-      'text-halo-color': '#08101e',
-      'text-halo-width': 1.2,
+      'icon-image': ['get', 'icon'],
+      'icon-size': ['get', 'iconSize'],
+      'icon-rotate': ['get', 'heading'],
+      'icon-allow-overlap': true,
+      'icon-ignore-placement': true,
+      'symbol-sort-key': ['case', ['==', ['get', 'kind'], 'aircraft'], 2, 1],
     },
   });
 
@@ -431,22 +448,24 @@ function addSourcesAndLayers() {
     id: 'target-labels',
     type: 'symbol',
     source: 'targets',
+    minzoom: 7.2,
     layout: {
       'text-field': ['get', 'label'],
-      'text-font': ['Open Sans Regular'],
+      'text-font': ['Open Sans Semibold'],
       'text-size': 11,
-      'text-offset': [0, 1.4],
+      'text-offset': [0, 1.55],
       'text-anchor': 'top',
       'text-allow-overlap': false,
+      'text-max-width': 10,
     },
     paint: {
-      'text-color': '#dbe7f4',
-      'text-halo-color': '#08101e',
+      'text-color': '#ebf5ff',
+      'text-halo-color': '#06101d',
       'text-halo-width': 1.4,
     },
   });
 
-  ['target-glyphs', 'target-labels', 'target-columns'].forEach((layerId) => {
+  ['target-icons', 'target-labels', 'target-selection'].forEach((layerId) => {
     state.map.on('click', layerId, (event) => {
       const feature = event.features?.[0];
       const entityId = feature?.properties?.id;
@@ -461,6 +480,75 @@ function addSourcesAndLayers() {
       state.map.getCanvas().style.cursor = '';
     });
   });
+
+  state.map.on('click', (event) => {
+    const features = state.map.queryRenderedFeatures(event.point, { layers: ['target-icons', 'target-labels', 'target-selection'] });
+    if (!features.length) {
+      state.selectedId = null;
+      refreshUi();
+    }
+  });
+}
+
+async function searchLocation() {
+  const query = dom.locationInput.value.trim();
+  if (!query) return;
+  setLocationStatus(`Searching for ${query}...`);
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`;
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+    if (!response.ok) throw new Error(`Search returned ${response.status}`);
+    const results = await response.json();
+    if (!Array.isArray(results) || !results.length) {
+      setLocationStatus(`No location found for ${query}.`);
+      return;
+    }
+    const result = results[0];
+    const lon = Number(result.lon);
+    const lat = Number(result.lat);
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+      setLocationStatus(`Location result for ${query} was invalid.`);
+      return;
+    }
+    state.map.easeTo({ center: [lon, lat], zoom: 8.6, pitch: 42, bearing: -10, duration: 800 });
+    setLocationStatus(`Showing ${result.display_name}.`);
+    fetchTraffic().catch(console.error);
+  } catch (error) {
+    setLocationStatus(`Location search failed: ${error.message}`);
+  }
+}
+
+function goToCurrentLocation() {
+  if (!navigator.geolocation) {
+    setLocationStatus('Browser geolocation is not available.');
+    return;
+  }
+
+  setLocationStatus('Requesting your current location...');
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      const { longitude, latitude } = position.coords;
+      state.locationInitialized = true;
+      state.map.easeTo({ center: [longitude, latitude], zoom: 8.8, pitch: 42, bearing: -10, duration: 900 });
+      setLocationStatus('Showing your current location.');
+      fetchTraffic().catch(console.error);
+    },
+    (error) => {
+      setLocationStatus(`Could not use current location: ${error.message}.`);
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+  );
+}
+
+function resetView() {
+  state.map.easeTo({ ...DEFAULT_VIEW, duration: 800 });
+  setLocationStatus('Reset to default regional view.');
+  fetchTraffic().catch(console.error);
 }
 
 function wireControls() {
@@ -489,11 +577,6 @@ function wireControls() {
     refreshUi();
   });
 
-  dom.toggle3d.addEventListener('change', (event) => {
-    state.filters.show3d = event.target.checked;
-    refreshUi();
-  });
-
   dom.toggleFollow.addEventListener('change', (event) => {
     state.followSelected = event.target.checked;
   });
@@ -508,24 +591,30 @@ function wireControls() {
     refreshUi();
   });
 
-  dom.refreshNow.addEventListener('click', () => {
-    fetchTraffic().catch((error) => console.error(error));
-  });
-
+  dom.refreshNow.addEventListener('click', () => fetchTraffic().catch(console.error));
   dom.clearSelection.addEventListener('click', () => {
     state.selectedId = null;
     refreshUi();
   });
+  dom.locationSearch.addEventListener('click', () => searchLocation());
+  dom.locationInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      searchLocation();
+    }
+  });
+  dom.currentLocation.addEventListener('click', () => goToCurrentLocation());
+  dom.resetView.addEventListener('click', () => resetView());
 }
 
 function initMap() {
   state.map = new maplibregl.Map({
     container: 'map',
     style: getMapStyle(),
-    center: [-73.9857, 40.7484],
-    zoom: 5.2,
-    pitch: 58,
-    bearing: -18,
+    center: DEFAULT_VIEW.center,
+    zoom: DEFAULT_VIEW.zoom,
+    pitch: DEFAULT_VIEW.pitch,
+    bearing: DEFAULT_VIEW.bearing,
     antialias: true,
     hash: true,
   });
@@ -533,28 +622,20 @@ function initMap() {
   state.popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: '280px' });
 
   state.map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'top-right');
-  state.map.addControl(new maplibregl.ScaleControl({ maxWidth: 160, unit: 'imperial' }), 'bottom-right');
-  if (typeof maplibregl.GlobeControl === 'function') {
-    state.map.addControl(new maplibregl.GlobeControl(), 'top-right');
-  }
+  state.map.addControl(new maplibregl.ScaleControl({ maxWidth: 140, unit: 'imperial' }), 'bottom-right');
 
   state.map.on('load', async () => {
-    try {
-      if (typeof state.map.setProjection === 'function') {
-        state.map.setProjection({ type: 'globe' });
-      }
-    } catch (error) {
-      console.debug('Globe projection unavailable:', error);
-    }
-
     addSourcesAndLayers();
     wireControls();
     scheduleRefresh();
     await fetchTraffic();
+    window.setTimeout(() => {
+      if (!state.locationInitialized) goToCurrentLocation();
+    }, 700);
   });
 
   state.map.on('moveend', () => {
-    fetchTraffic().catch((error) => console.error(error));
+    fetchTraffic().catch(console.error);
   });
 }
 
